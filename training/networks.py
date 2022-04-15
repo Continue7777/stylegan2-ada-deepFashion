@@ -37,6 +37,7 @@ def modulated_conv2d(
     flip_weight     = True,     # False = convolution, True = correlation (matches torch.nn.functional.conv2d).
     fused_modconv   = True,     # Perform modulation, convolution, and demodulation as a single fused operation?
 ):
+#     print("!!!!!!!!!!!!!!!")
     batch_size = x.shape[0]
     out_channels, in_channels, kh, kw = weight.shape
     misc.assert_shape(weight, [out_channels, in_channels, kh, kw]) # [OIkk]
@@ -80,7 +81,10 @@ def modulated_conv2d(
     x = conv2d_resample.conv2d_resample(x=x, w=w.to(x.dtype), f=resample_filter, up=up, down=down, padding=padding, groups=batch_size, flip_weight=flip_weight)
     x = x.reshape(batch_size, -1, *x.shape[2:])
     if noise is not None:
+#         print(noise.shape)
         x = x.add_(noise)
+        
+#     print(x.shape)
     return x
 
 #----------------------------------------------------------------------------
@@ -279,19 +283,19 @@ class SynthesisLayer(torch.nn.Module):
         memory_format = torch.channels_last if channels_last else torch.contiguous_format
         self.weight = torch.nn.Parameter(torch.randn([out_channels, in_channels, kernel_size, kernel_size]).to(memory_format=memory_format))
         if use_noise:
-            self.register_buffer('noise_const', torch.randn([resolution, resolution]))
+            self.register_buffer('noise_const', torch.randn([resolution, int(resolution/2)]))
             self.noise_strength = torch.nn.Parameter(torch.zeros([]))
         self.bias = torch.nn.Parameter(torch.zeros([out_channels]))
 
     def forward(self, x, w, noise_mode='random', fused_modconv=True, gain=1):
         assert noise_mode in ['random', 'const', 'none']
         in_resolution = self.resolution // self.up
-        misc.assert_shape(x, [None, self.weight.shape[1], in_resolution, in_resolution])
+        misc.assert_shape(x, [None, self.weight.shape[1], in_resolution, in_resolution/2])
         styles = self.affine(w)
 
         noise = None
         if self.use_noise and noise_mode == 'random':
-            noise = torch.randn([x.shape[0], 1, self.resolution, self.resolution], device=x.device) * self.noise_strength
+            noise = torch.randn([x.shape[0], 1, self.resolution, int(self.resolution/2)], device=x.device) * self.noise_strength
         if self.use_noise and noise_mode == 'const':
             noise = self.noise_const * self.noise_strength
 
@@ -356,7 +360,7 @@ class SynthesisBlock(torch.nn.Module):
         self.num_torgb = 0
 
         if in_channels == 0:
-            self.const = torch.nn.Parameter(torch.randn([out_channels, resolution, resolution]))
+            self.const = torch.nn.Parameter(torch.randn([out_channels, resolution , int(resolution/2)]))
 
         if in_channels != 0:
             self.conv0 = SynthesisLayer(in_channels, out_channels, w_dim=w_dim, resolution=resolution, up=2,
@@ -390,7 +394,7 @@ class SynthesisBlock(torch.nn.Module):
             x = self.const.to(dtype=dtype, memory_format=memory_format)
             x = x.unsqueeze(0).repeat([ws.shape[0], 1, 1, 1])
         else:
-            misc.assert_shape(x, [None, self.in_channels, self.resolution // 2, self.resolution // 2])
+            misc.assert_shape(x, [None, self.in_channels, self.resolution // 2, self.resolution / 2 // 2])
             x = x.to(dtype=dtype, memory_format=memory_format)
 
         # Main layers.
@@ -407,7 +411,7 @@ class SynthesisBlock(torch.nn.Module):
 
         # ToRGB.
         if img is not None:
-            misc.assert_shape(img, [None, self.img_channels, self.resolution // 2, self.resolution // 2])
+            misc.assert_shape(img, [None, self.img_channels, self.resolution // 2, self.resolution / 2 // 2])
             img = upfirdn2d.upsample2d(img, self.resample_filter)
         if self.is_last or self.architecture == 'skip':
             y = self.torgb(x, next(w_iter), fused_modconv=fused_modconv)
@@ -559,12 +563,12 @@ class DiscriminatorBlock(torch.nn.Module):
 
         # Input.
         if x is not None:
-            misc.assert_shape(x, [None, self.in_channels, self.resolution, self.resolution])
+            misc.assert_shape(x, [None, self.in_channels, self.resolution, self.resolution / 2])
             x = x.to(dtype=dtype, memory_format=memory_format)
 
         # FromRGB.
         if self.in_channels == 0 or self.architecture == 'skip':
-            misc.assert_shape(img, [None, self.img_channels, self.resolution, self.resolution])
+            misc.assert_shape(img, [None, self.img_channels, self.resolution, self.resolution / 2])
             img = img.to(dtype=dtype, memory_format=memory_format)
             y = self.fromrgb(img)
             x = x + y if x is not None else y
@@ -636,11 +640,11 @@ class DiscriminatorEpilogue(torch.nn.Module):
             self.fromrgb = Conv2dLayer(img_channels, in_channels, kernel_size=1, activation=activation)
         self.mbstd = MinibatchStdLayer(group_size=mbstd_group_size, num_channels=mbstd_num_channels) if mbstd_num_channels > 0 else None
         self.conv = Conv2dLayer(in_channels + mbstd_num_channels, in_channels, kernel_size=3, activation=activation, conv_clamp=conv_clamp)
-        self.fc = FullyConnectedLayer(in_channels * (resolution ** 2), in_channels, activation=activation)
+        self.fc = FullyConnectedLayer(int(in_channels * (resolution ** 2) / 2), in_channels, activation=activation)
         self.out = FullyConnectedLayer(in_channels, 1 if cmap_dim == 0 else cmap_dim)
 
     def forward(self, x, img, cmap, force_fp32=False):
-        misc.assert_shape(x, [None, self.in_channels, self.resolution, self.resolution]) # [NCHW]
+        misc.assert_shape(x, [None, self.in_channels, self.resolution, self.resolution / 2]) # [NCHW]
         _ = force_fp32 # unused
         dtype = torch.float32
         memory_format = torch.contiguous_format

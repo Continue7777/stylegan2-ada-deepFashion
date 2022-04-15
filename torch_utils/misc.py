@@ -90,7 +90,7 @@ def assert_shape(tensor, ref_shape):
             with suppress_tracer_warnings(): # as_tensor results are registered as constants
                 symbolic_assert(torch.equal(size, torch.as_tensor(ref_size)), f'Wrong size for dimension {idx}: expected {ref_size}')
         elif size != ref_size:
-            raise AssertionError(f'Wrong size for dimension {idx}: got {size}, expected {ref_size}')
+            raise AssertionError(f'Wrong size for dimension {idx}: got {size}, expected {ref_size}',tensor.shape, ref_shape)
 
 #----------------------------------------------------------------------------
 # Function decorator that calls torch.autograd.profiler.record_function().
