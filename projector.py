@@ -37,7 +37,8 @@ def project(
     verbose                    = False,
     device: torch.device
 ):
-    assert target.shape == (G.img_channels, G.img_resolution, G.img_resolution)
+#     print(target.shape)
+    assert target.shape == (G.img_channels, G.img_resolution, G.img_resolution / 2)
 
     def logprint(*args):
         if verbose:
@@ -66,7 +67,7 @@ def project(
     # Features for target image.
     target_images = target.unsqueeze(0).to(device).to(torch.float32)
     if target_images.shape[2] > 256:
-        target_images = F.interpolate(target_images, size=(256, 256), mode='area')
+        target_images = F.interpolate(target_images, size=(256, 128), mode='area')
     target_features = vgg16(target_images, resize_images=False, return_lpips=True)
 
     w_opt = torch.tensor(w_avg, dtype=torch.float32, device=device, requires_grad=True) # pylint: disable=not-callable
@@ -98,11 +99,14 @@ def project(
         # Downsample image to 256x256 if it's larger than that. VGG was built for 224x224 images.
         synth_images = (synth_images + 1) * (255/2)
         if synth_images.shape[2] > 256:
-            synth_images = F.interpolate(synth_images, size=(256, 256), mode='area')
+            synth_images = F.interpolate(synth_images, size=(256, 128), mode='area')
 
         # Features for synth images.
         synth_features = vgg16(synth_images, resize_images=False, return_lpips=True)
-        dist = (target_features - synth_features).square().sum()
+       
+#         print(target_features.shape,synth_features.shape)
+#         dist = 
+        dist = (target_images / 255 - synth_images / 255).square().sum() + (target_features - synth_features).square().sum() * 10
 
         # Noise regularization.
         reg_loss = 0.0
@@ -172,8 +176,8 @@ def run_projection(
     target_pil = PIL.Image.open(target_fname).convert('RGB')
     w, h = target_pil.size
     s = min(w, h)
-    target_pil = target_pil.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
-    target_pil = target_pil.resize((G.img_resolution, G.img_resolution), PIL.Image.LANCZOS)
+#     target_pil = target_pil.crop(((w - s) // 2, (h - s) // 2, (w + s) // 2, (h + s) // 2))
+#     target_pil = target_pil.resize((int(G.img_resolution/2), int(G.img_resolution)), PIL.Image.LANCZOS)
     target_uint8 = np.array(target_pil, dtype=np.uint8)
 
     # Optimize projection.
@@ -196,6 +200,7 @@ def run_projection(
             synth_image = G.synthesis(projected_w.unsqueeze(0), noise_mode='const')
             synth_image = (synth_image + 1) * (255/2)
             synth_image = synth_image.permute(0, 2, 3, 1).clamp(0, 255).to(torch.uint8)[0].cpu().numpy()
+#             print("!",synth_image.shape,target_uint8.shape)
             video.append_data(np.concatenate([target_uint8, synth_image], axis=1))
         video.close()
 

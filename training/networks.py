@@ -291,7 +291,7 @@ class SynthesisLayer(torch.nn.Module):
         assert noise_mode in ['random', 'const', 'none']
         in_resolution = self.resolution // self.up
         misc.assert_shape(x, [None, self.weight.shape[1], in_resolution, in_resolution/2])
-        styles = self.affine(w)
+        styles = self.affine(w) 
 
         noise = None
         if self.use_noise and noise_mode == 'random':
@@ -474,6 +474,31 @@ class SynthesisNetwork(torch.nn.Module):
             block = getattr(self, f'b{res}')
             x, img = block(x, img, cur_ws, **block_kwargs)
         return img
+    
+#     def forward_mask(self, ws1,ws2,mask, **block_kwargs):
+#         block_ws1 = []
+#         block_ws2 = []
+#         with torch.autograd.profiler.record_function('split_ws'):
+#             misc.assert_shape(ws1, [None, self.num_ws, self.w_dim])
+#             ws1 = ws1.to(torch.float32)
+#             ws2 = ws2.to(torch.float32)
+#             w_idx = 0
+#             for res in self.block_resolutions:
+#                 block = getattr(self, f'b{res}')
+#                 block_ws1.append(ws1.narrow(1, w_idx, block.num_conv + block.num_torgb))
+#                 block_ws2.append(ws2.narrow(1, w_idx, block.num_conv + block.num_torgb))
+#                 w_idx += block.num_conv
+
+#         x = img = None
+#         for res, cur_ws1,cur_ws2 in zip(self.block_resolutions, block_ws1,block_ws2):
+#             block = getattr(self, f'b{res}')
+# #             resolution = img.shape[2]
+#             cur_mask = torch.nn.functional.interpolate(mask,(img.shape[2],img.shape[3]))
+#             x1, img1 = block(x, img, cur_ws1, **block_kwargs)
+#             x2, img2 = block(x, img, cur_ws2, **block_kwargs)
+#             x = x1
+#             img = img1
+#         return img
 
 #----------------------------------------------------------------------------
 
